@@ -1,17 +1,31 @@
 #! /usr/bin/env python3
 
 import os, sys, time, re
+p_read, p_write = os.pipe()
 
+for f in (p_read, p_write):
+    os.set_inheritable(f, True)
 
 while True:
 
-    os.write(1, ("$ ").encode())
+    os.write(1, ((os.getcwd()+("$ ")).encode()))
 
     command = os.read(0,1000)
+    args = re.split("[ \n]", command.decode())
 
-    if re.split("[ \n]",command.decode())[0] == "exit":
+    if args[0] == "exit":
         os.write(1, "exiting...\n".encode())
         sys.exit(0)
+
+    if args[0] == "cd":
+        if(args[1]!=None):
+            try:
+                os.chdir(args[1])
+                continue
+            except FileNotFoundError:
+                os.write(2, ("Directory does not exist %s\n" % args[1]).encode())
+                continue
+
     
     rc = os.fork()
 
@@ -20,7 +34,28 @@ while True:
         sys.exit(1)
 
     elif rc == 0:                   # child
-        args = re.split("[ \n]", command.decode())
+        if '>' in args:
+            os.close(1)
+            os.open(args[args.index('>')+1], os.O_CREAT | os.O_WRONLY);
+            os.set_inheritable(1,True)
+            args.remove(args[args.index('>')+1])
+            args.remove('>')
+
+        if '<' in args:
+            os.close(0)
+            os.open(args[args.index('<')+1], os.O_RDONLY)
+            os.set_inheritable(0,True)
+            args.remove(args[args.index('<')+1])
+            args.remove('<')
+
+        if '|' in args:
+            os.close(1)
+            os.set_inheritable(os.dup(p_write),True)
+            args = args[:args.index('|')]
+            for fd in (p_read,p_write):
+                os.close(fd)
+
+            
         #print("-------------",args)
         for dir in re.split(":", os.environ['PATH']): # try each directory in the path
             program = "%s/%s" % (dir, args[0])
